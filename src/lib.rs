@@ -1,7 +1,7 @@
 use bevy::{
     ecs::{
         component::StorageType,
-        query::QueryData,
+        query::{QueryData, QueryFilter},
         system::{SystemParam, SystemParamItem},
         world::DeferredWorld,
     },
@@ -13,37 +13,41 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-pub trait ReactiveQueryData: QueryData + Sized {
+pub trait ReactiveQueryData<F: QueryFilter>: QueryData + Sized {
     type State: Send + Sync + 'static;
 
-    fn init(world: &mut World) -> <Self as ReactiveQueryData>::State;
+    fn init(world: &mut World) -> <Self as ReactiveQueryData<F>>::State;
 
-    fn is_changed(world: DeferredWorld, state: &mut <Self as ReactiveQueryData>::State) -> bool;
+    fn is_changed(world: DeferredWorld, state: &mut <Self as ReactiveQueryData<F>>::State) -> bool;
 
     fn get<'w, 's>(
         world: &'w mut DeferredWorld<'w>,
-        state: &'s mut <Self as ReactiveQueryData>::State,
-    ) -> Query<'w, 's, Self, ()>;
+        state: &'s mut <Self as ReactiveQueryData<F>>::State,
+    ) -> Query<'w, 's, Self, F>;
 }
 
-impl<T: Component> ReactiveQueryData for &T {
-    type State = (QueryState<(), Changed<T>>, QueryState<&'static T>);
+impl<F, T> ReactiveQueryData<F> for &T
+where
+    F: QueryFilter + 'static,
+    T: Component,
+{
+    type State = (QueryState<(), (Changed<T>, F)>, QueryState<&'static T, F>);
 
-    fn init(world: &mut World) -> <Self as ReactiveQueryData>::State {
+    fn init(world: &mut World) -> <Self as ReactiveQueryData<F>>::State {
         (QueryState::new(world), QueryState::new(world))
     }
 
     fn is_changed<'w>(
         mut world: DeferredWorld,
-        state: &mut <Self as ReactiveQueryData>::State,
+        state: &mut <Self as ReactiveQueryData<F>>::State,
     ) -> bool {
         !world.reborrow().query(&mut state.0).is_empty()
     }
 
     fn get<'w, 's>(
         world: &'w mut DeferredWorld<'w>,
-        state: &'s mut <Self as ReactiveQueryData>::State,
-    ) -> Query<'w, 's, Self, ()> {
+        state: &'s mut <Self as ReactiveQueryData<F>>::State,
+    ) -> Query<'w, 's, Self, F> {
         // TODO verify safety
         unsafe { mem::transmute(world.query(&mut state.1)) }
     }
@@ -65,9 +69,12 @@ pub trait ReactiveSystemParam: SystemParam {
 impl<R: Resource> ReactiveSystemParam for Res<'_, R> {
     type State = ();
 
-    fn init(world: &mut World) -> <Self as ReactiveSystemParam>::State {}
+    fn init(world: &mut World) -> <Self as ReactiveSystemParam>::State {
+        let _ = world;
+    }
 
     fn is_changed(world: DeferredWorld, state: &mut <Self as ReactiveSystemParam>::State) -> bool {
+        let _ = state;
         world.resource_ref::<R>().is_changed()
     }
 
@@ -75,29 +82,34 @@ impl<R: Resource> ReactiveSystemParam for Res<'_, R> {
         world: &'w mut DeferredWorld<'w>,
         state: &mut <Self as ReactiveSystemParam>::State,
     ) -> Self::Item<'w, 'w> {
+        let _ = state;
         world.resource_ref::<R>()
     }
 }
 
-impl<D: ReactiveQueryData + QueryData + 'static> ReactiveSystemParam for Query<'_, '_, D> {
-    type State = <D as ReactiveQueryData>::State;
+impl<D, F> ReactiveSystemParam for Query<'_, '_, D, F>
+where
+    D: ReactiveQueryData<F> + QueryData + 'static,
+    F: QueryFilter + 'static,
+{
+    type State = <D as ReactiveQueryData<F>>::State;
 
     fn init(world: &mut World) -> <Self as ReactiveSystemParam>::State {
-        <D as ReactiveQueryData>::init(world)
+        <D as ReactiveQueryData<F>>::init(world)
     }
 
     fn is_changed<'a>(
         world: DeferredWorld,
         state: &mut <Self as ReactiveSystemParam>::State,
     ) -> bool {
-        <D as ReactiveQueryData>::is_changed(world, state)
+        <D as ReactiveQueryData<F>>::is_changed(world, state)
     }
 
     fn get<'w, 's>(
         world: &'w mut DeferredWorld<'w>,
         state: &'s mut <Self as ReactiveSystemParam>::State,
     ) -> Self::Item<'w, 's> {
-        <D as ReactiveQueryData>::get(world, state)
+        <D as ReactiveQueryData<F>>::get(world, state)
     }
 }
 
