@@ -29,4 +29,16 @@ fn setup(mut commands: Commands) {
             dbg!(dmg.0);
         }
     }));
+
+    commands.spawn((
+        Health(0),
+        Reaction::switch(
+            |scope: In<Scope>, query: Query<&Health>| {
+                let dmg = query.get(scope.entity).unwrap();
+                dmg.0 == 0
+            },
+            || Damage(50),
+            || Damage(100),
+        ),
+    ));
 }

@@ -94,6 +94,25 @@ impl ReactiveSystemParam for Commands<'_, '_> {
     }
 }
 
+impl<T: FromWorld + Send> ReactiveSystemParam for Local<'_, T> {
+    type State = SystemState<Local<'static, T>>;
+
+    fn init(world: &mut World) -> <Self as ReactiveSystemParam>::State {
+        SystemState::new(world)
+    }
+
+    fn is_changed(world: DeferredWorld, state: &mut <Self as ReactiveSystemParam>::State) -> bool {
+        false
+    }
+
+    unsafe fn get<'w: 's, 's>(
+        world: &'w mut DeferredWorld<'w>,
+        state: &'s mut <Self as ReactiveSystemParam>::State,
+    ) -> Self::Item<'w, 's> {
+        state.get(world)
+    }
+}
+
 impl<R: Resource> ReactiveSystemParam for Res<'_, R> {
     type State = ();
 
@@ -381,9 +400,7 @@ impl Component for Reaction {
 }
 
 impl Reaction {
-    pub fn new<Marker, S>(
-        system: impl IntoReactiveSystem<Marker, System = S>,
-    ) -> Self
+    pub fn new<Marker, S>(system: impl IntoReactiveSystem<Marker, System = S>) -> Self
     where
         Marker: Send + Sync + 'static,
         S: ReactiveSystem<In = (), Out = ()> + 'static,
@@ -404,6 +421,35 @@ impl Reaction {
             system: Arc::new(Mutex::new(Box::new(system.map(
                 |scope: In<Scope<B>>, mut commands: Commands| {
                     commands.entity(scope.entity).insert(scope.0.input);
+                },
+            )))),
+        }
+    }
+
+    pub fn switch<Marker, A, B>(
+        system: impl ReactiveSystemParamFunction<Marker, In = (), Out = bool> + Send + Sync + 'static,
+        mut f: impl FnMut() -> A + Send + Sync + 'static,
+        mut g: impl FnMut() -> B + Send + Sync + 'static,
+    ) -> Self
+    where
+        Marker: Send + Sync + 'static,
+        A: Bundle,
+        B: Bundle,
+    {
+        Self {
+            system: Arc::new(Mutex::new(Box::new(system.map(
+                move |scope: In<Scope<bool>>, mut commands: Commands, mut local: Local<bool>| {
+                    if scope.input {
+                        if !*local {
+                            commands.entity(scope.entity).remove::<B>();
+                            commands.entity(scope.entity).insert(f());
+                            *local = true;
+                        }
+                    } else if *local {
+                        commands.entity(scope.entity).remove::<B>();
+                        commands.entity(scope.entity).insert(f());
+                        *local = false;
+                    }
                 },
             )))),
         }
