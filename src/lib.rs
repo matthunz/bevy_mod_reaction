@@ -1,13 +1,15 @@
 use bevy::{
     ecs::{
         component::StorageType,
-        query::{QueryData, QueryFilter},
+        query::{QueryData, QueryFilter, ReadOnlyQueryData, WorldQuery},
         system::{SystemParam, SystemParamItem, SystemState},
         world::DeferredWorld,
     },
     prelude::*,
+    utils::HashSet,
 };
 use std::{
+    error::Error,
     marker::PhantomData,
     mem,
     ops::Deref,
@@ -20,6 +22,12 @@ pub trait ReactiveQueryData<F: QueryFilter>: QueryData + Sized {
     fn init(world: &mut World) -> <Self as ReactiveQueryData<F>>::State;
 
     fn is_changed(world: DeferredWorld, state: &mut <Self as ReactiveQueryData<F>>::State) -> bool;
+
+    fn is_changed_with_entity(
+        world: DeferredWorld,
+        state: &mut <Self as ReactiveQueryData<F>>::State,
+        entity: Entity,
+    ) -> bool;
 
     fn get<'w, 's>(
         world: &'w mut DeferredWorld<'w>,
@@ -46,6 +54,14 @@ where
         state: &mut <Self as ReactiveQueryData<F>>::State,
     ) -> bool {
         !state.get(&world).0.is_empty()
+    }
+
+    fn is_changed_with_entity(
+        world: DeferredWorld,
+        state: &mut <Self as ReactiveQueryData<F>>::State,
+        entity: Entity,
+    ) -> bool {
+        state.get(&world).0.get(entity).is_ok()
     }
 
     fn get<'w, 's>(
@@ -211,6 +227,89 @@ impl<T1: ReactiveSystemParam, T2: ReactiveSystemParam> ReactiveSystemParam for (
             T1::get(unsafe { &mut *world_ptr }, &mut state.0),
             T2::get(unsafe { &mut *world_ptr }, &mut state.1),
         )
+    }
+}
+
+pub struct ReactiveQueryState<D: QueryData + 'static, F: QueryFilter + 'static, S> {
+    query: SystemState<Query<'static, 'static, D, F>>,
+    query_state: S,
+    entities: HashSet<Entity>,
+}
+
+pub struct ReactiveQuery<'w, 's, D: ReadOnlyQueryData + 'static, F: QueryFilter + 'static = ()> {
+    query: Query<'w, 's, D, F>,
+    entities: &'s mut HashSet<Entity>,
+}
+
+impl<'w, 's, D: ReadOnlyQueryData + 'static, F: QueryFilter + 'static> ReactiveQuery<'w, 's, D, F> {
+    pub fn get(&mut self, entity: Entity) -> Result<<D as WorldQuery>::Item<'_>, Box<dyn Error>> {
+        self.entities.insert(entity);
+
+        self.query
+            .get(entity)
+            .map_err(|e| Box::new(e) as Box<dyn Error>)
+    }
+}
+
+unsafe impl<D: ReadOnlyQueryData + 'static, F: QueryFilter + 'static> SystemParam
+    for ReactiveQuery<'_, '_, D, F>
+{
+    type State = ();
+
+    type Item<'world, 'state> = ReactiveQuery<'world, 'state, D, F>;
+
+    fn init_state(
+        world: &mut World,
+        system_meta: &mut bevy::ecs::system::SystemMeta,
+    ) -> Self::State {
+        todo!()
+    }
+
+    unsafe fn get_param<'world, 'state>(
+        state: &'state mut Self::State,
+        system_meta: &bevy::ecs::system::SystemMeta,
+        world: bevy::ecs::world::unsafe_world_cell::UnsafeWorldCell<'world>,
+        change_tick: bevy::ecs::component::Tick,
+    ) -> Self::Item<'world, 'state> {
+        todo!()
+    }
+}
+
+impl<D, F> ReactiveSystemParam for ReactiveQuery<'_, '_, D, F>
+where
+    D: ReactiveQueryData<F> + ReadOnlyQueryData + 'static,
+    F: QueryFilter + 'static,
+{
+    type State = ReactiveQueryState<D, F, <D as ReactiveQueryData<F>>::State>;
+
+    fn init(world: &mut World) -> <Self as ReactiveSystemParam>::State {
+        ReactiveQueryState {
+            query: SystemState::new(world),
+            query_state: D::init(world),
+            entities: HashSet::new(),
+        }
+    }
+
+    fn is_changed(
+        mut world: DeferredWorld,
+        state: &mut <Self as ReactiveSystemParam>::State,
+    ) -> bool {
+        for entity in state.entities.iter() {
+            if D::is_changed_with_entity(world.reborrow(), &mut state.query_state, *entity) {
+                return true;
+            }
+        }
+        false
+    }
+
+    unsafe fn get<'w: 's, 's>(
+        world: &'w mut DeferredWorld<'w>,
+        state: &'s mut <Self as ReactiveSystemParam>::State,
+    ) -> Self::Item<'w, 's> {
+        ReactiveQuery {
+            query: state.query.get(world),
+            entities: &mut state.entities,
+        }
     }
 }
 

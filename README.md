@@ -4,7 +4,7 @@ Reactive components for Bevy.
 
 ```rs
 use bevy::prelude::*;
-use bevy_mod_reaction::{react, Reaction, Scope};
+use bevy_mod_reaction::{react, Reaction, ReactiveQuery, Scope};
 
 fn main() {
     App::new()
@@ -20,10 +20,15 @@ struct Health(i32);
 #[derive(Component)]
 struct Damage(i32);
 
+#[derive(Component)]
+struct Armor(i32);
+
 fn setup(mut commands: Commands) {
+    // Coarse-grained reactivity:
+    // This reaction will only run when the `Health` component belonging to `scope.entity` changes.
     commands.spawn((
         Health(100),
-        Reaction::derive(|scope: In<Scope>, query: Query<&Health>| {
+        Reaction::derive(|scope: In<Scope>, mut query: ReactiveQuery<&Health>| {
             let health = query.get(scope.entity).unwrap();
             Damage(health.0 * 2)
         }),
@@ -42,7 +47,7 @@ fn setup(mut commands: Commands) {
                 let dmg = query.get(scope.entity).unwrap();
                 dmg.0 == 0
             },
-            || Damage(50),
+            || Armor(50),
             || Damage(100),
         ),
     ));
