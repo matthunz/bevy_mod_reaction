@@ -2,7 +2,7 @@ use bevy::{
     ecs::{
         component::StorageType,
         query::{QueryData, QueryFilter},
-        system::{SystemParam, SystemParamItem},
+        system::{SystemParam, SystemParamItem, SystemState},
         world::DeferredWorld,
     },
     prelude::*,
@@ -31,17 +31,20 @@ where
     F: QueryFilter + 'static,
     T: Component,
 {
-    type State = (QueryState<(), (Changed<T>, F)>, QueryState<&'static T, F>);
+    type State = SystemState<(
+        Query<'static, 'static, (), (Changed<T>, F)>,
+        Query<'static, 'static, &'static T, F>,
+    )>;
 
     fn init(world: &mut World) -> <Self as ReactiveQueryData<F>>::State {
-        (QueryState::new(world), QueryState::new(world))
+        SystemState::new(world)
     }
 
     fn is_changed<'w>(
-        mut world: DeferredWorld,
+        world: DeferredWorld,
         state: &mut <Self as ReactiveQueryData<F>>::State,
     ) -> bool {
-        !world.reborrow().query(&mut state.0).is_empty()
+        !state.get(&world).0.is_empty()
     }
 
     fn get<'w, 's>(
@@ -49,7 +52,7 @@ where
         state: &'s mut <Self as ReactiveQueryData<F>>::State,
     ) -> Query<'w, 's, Self, F> {
         // TODO verify safety
-        unsafe { mem::transmute(world.query(&mut state.1)) }
+        unsafe { mem::transmute(state.get(&world).1) }
     }
 }
 
@@ -60,10 +63,34 @@ pub trait ReactiveSystemParam: SystemParam {
 
     fn is_changed(world: DeferredWorld, state: &mut <Self as ReactiveSystemParam>::State) -> bool;
 
-    fn get<'w, 's>(
+    unsafe fn get<'w: 's, 's>(
         world: &'w mut DeferredWorld<'w>,
         state: &'s mut <Self as ReactiveSystemParam>::State,
     ) -> Self::Item<'w, 's>;
+}
+
+impl ReactiveSystemParam for Commands<'_, '_> {
+    type State = ();
+
+    fn init(world: &mut World) -> <Self as ReactiveSystemParam>::State {
+        let _ = world;
+    }
+
+    fn is_changed(world: DeferredWorld, state: &mut <Self as ReactiveSystemParam>::State) -> bool {
+        let _ = world;
+        let _ = state;
+
+        false
+    }
+
+    unsafe fn get<'w: 's, 's>(
+        world: &'w mut DeferredWorld<'w>,
+        state: &'s mut <Self as ReactiveSystemParam>::State,
+    ) -> Self::Item<'w, 's> {
+        let _ = state;
+
+        world.commands()
+    }
 }
 
 impl<R: Resource> ReactiveSystemParam for Res<'_, R> {
@@ -78,10 +105,10 @@ impl<R: Resource> ReactiveSystemParam for Res<'_, R> {
         world.resource_ref::<R>().is_changed()
     }
 
-    fn get<'w>(
+    unsafe fn get<'w: 's, 's>(
         world: &'w mut DeferredWorld<'w>,
-        state: &mut <Self as ReactiveSystemParam>::State,
-    ) -> Self::Item<'w, 'w> {
+        state: &'s mut <Self as ReactiveSystemParam>::State,
+    ) -> Self::Item<'w, 's> {
         let _ = state;
         world.resource_ref::<R>()
     }
@@ -105,7 +132,7 @@ where
         <D as ReactiveQueryData<F>>::is_changed(world, state)
     }
 
-    fn get<'w, 's>(
+    unsafe fn get<'w: 's, 's>(
         world: &'w mut DeferredWorld<'w>,
         state: &'s mut <Self as ReactiveSystemParam>::State,
     ) -> Self::Item<'w, 's> {
@@ -127,11 +154,40 @@ impl<T: ReactiveSystemParam> ReactiveSystemParam for (T,) {
         T::is_changed(world, state)
     }
 
-    fn get<'w, 's>(
+    unsafe fn get<'w: 's, 's>(
         world: &'w mut DeferredWorld<'w>,
         state: &'s mut <Self as ReactiveSystemParam>::State,
     ) -> Self::Item<'w, 's> {
         (T::get(world, state),)
+    }
+}
+
+impl<T1: ReactiveSystemParam, T2: ReactiveSystemParam> ReactiveSystemParam for (T1, T2) {
+    type State = (
+        <T1 as ReactiveSystemParam>::State,
+        <T2 as ReactiveSystemParam>::State,
+    );
+
+    fn init(world: &mut World) -> <Self as ReactiveSystemParam>::State {
+        (T1::init(world), T2::init(world))
+    }
+
+    fn is_changed<'a>(
+        mut world: DeferredWorld,
+        state: &mut <Self as ReactiveSystemParam>::State,
+    ) -> bool {
+        T1::is_changed(world.reborrow(), &mut state.0) || T2::is_changed(world, &mut state.1)
+    }
+
+    unsafe fn get<'w: 's, 's>(
+        world: &'w mut DeferredWorld<'w>,
+        state: &'s mut <Self as ReactiveSystemParam>::State,
+    ) -> Self::Item<'w, 's> {
+        let world_ptr = world as *mut _;
+        (
+            T1::get(unsafe { &mut *world_ptr }, &mut state.0),
+            T2::get(unsafe { &mut *world_ptr }, &mut state.1),
+        )
     }
 }
 
@@ -183,10 +239,11 @@ where
     }
 
     fn run(&mut self, mut world: DeferredWorld, entity: Entity) {
-        self.f.run(
-            F::Param::get(&mut world.reborrow(), self.state.as_mut().unwrap()),
-            entity,
-        );
+        // TODO check for overlapping params
+        let mut world = world.reborrow();
+        let params = unsafe { F::Param::get(&mut world, self.state.as_mut().unwrap()) };
+
+        self.f.run(params, entity);
     }
 }
 
