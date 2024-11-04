@@ -10,6 +10,7 @@ use bevy::{
 use std::{
     marker::PhantomData,
     mem,
+    ops::Deref,
     sync::{Arc, Mutex},
 };
 
@@ -191,30 +192,65 @@ impl<T1: ReactiveSystemParam, T2: ReactiveSystemParam> ReactiveSystemParam for (
     }
 }
 
+pub struct Scope<T = ()> {
+    pub entity: Entity,
+    pub input: T,
+}
+
+impl<T> Deref for Scope<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.input
+    }
+}
+
 pub trait ReactiveSystemParamFunction<Marker> {
     type Param: ReactiveSystemParam;
 
-    fn run(&mut self, param: SystemParamItem<Self::Param>, entity: Entity);
+    type In;
+
+    type Out;
+
+    fn run(
+        &mut self,
+        param: SystemParamItem<Self::Param>,
+        input: Self::In,
+        entity: Entity,
+    ) -> Self::Out;
 }
 
-impl<Marker, F> ReactiveSystemParamFunction<Marker> for F
+impl<Marker, F, T> ReactiveSystemParamFunction<Marker> for F
 where
-    F: SystemParamFunction<Marker, In = Entity, Out = ()>,
+    F: SystemParamFunction<Marker, In = Scope<T>>,
     F::Param: ReactiveSystemParam,
 {
     type Param = F::Param;
 
-    fn run(&mut self, param: SystemParamItem<Self::Param>, entity: Entity) {
-        SystemParamFunction::run(self, entity, param)
+    type In = T;
+
+    type Out = F::Out;
+
+    fn run(
+        &mut self,
+        param: SystemParamItem<Self::Param>,
+        input: Self::In,
+        entity: Entity,
+    ) -> Self::Out {
+        SystemParamFunction::run(self, Scope { entity, input }, param)
     }
 }
 
 pub trait ReactiveSystem: Send + Sync {
+    type In;
+
+    type Out;
+
     fn init(&mut self, world: &mut World);
 
     fn is_changed(&mut self, world: DeferredWorld) -> bool;
 
-    fn run(&mut self, world: DeferredWorld, entity: Entity);
+    fn run(&mut self, input: Self::In, world: DeferredWorld, entity: Entity) -> Self::Out;
 }
 
 pub struct FunctionReactiveSystem<F, S, Marker> {
@@ -230,6 +266,9 @@ where
     S: Send + Sync,
     Marker: Send + Sync,
 {
+    type In = F::In;
+    type Out = F::Out;
+
     fn init(&mut self, world: &mut World) {
         self.state = Some(F::Param::init(world));
     }
@@ -238,18 +277,18 @@ where
         F::Param::is_changed(world, self.state.as_mut().unwrap())
     }
 
-    fn run(&mut self, mut world: DeferredWorld, entity: Entity) {
+    fn run(&mut self, input: Self::In, mut world: DeferredWorld, entity: Entity) -> Self::Out {
         // TODO check for overlapping params
         let mut world = world.reborrow();
         let params = unsafe { F::Param::get(&mut world, self.state.as_mut().unwrap()) };
 
-        self.f.run(params, entity);
+        self.f.run(params, input, entity)
     }
 }
 
 #[derive(Clone)]
 pub struct Reaction {
-    system: Arc<Mutex<Box<dyn ReactiveSystem>>>,
+    system: Arc<Mutex<Box<dyn ReactiveSystem<In = (), Out = ()>>>>,
 }
 
 impl Component for Reaction {
@@ -271,7 +310,7 @@ impl Component for Reaction {
 
 impl Reaction {
     pub fn new<Marker>(
-        system: impl ReactiveSystemParamFunction<Marker> + Send + Sync + 'static,
+        system: impl ReactiveSystemParamFunction<Marker, In = (), Out = ()> + Send + Sync + 'static,
     ) -> Self
     where
         Marker: Send + Sync + 'static,
@@ -291,7 +330,7 @@ pub fn react(mut world: DeferredWorld, reaction_query: Query<(Entity, &Reaction)
         let mut system = reaction.system.lock().unwrap();
 
         if system.is_changed(world.reborrow()) {
-            system.run(world.reborrow(), entity);
+            system.run((), world.reborrow(), entity);
         }
     }
 }
