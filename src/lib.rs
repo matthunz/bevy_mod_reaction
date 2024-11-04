@@ -138,18 +138,18 @@ impl<T: ReactiveSystemParam> ReactiveSystemParam for (T,) {
 pub trait ReactiveSystemParamFunction<Marker> {
     type Param: ReactiveSystemParam;
 
-    fn run(&mut self, param: SystemParamItem<Self::Param>);
+    fn run(&mut self, param: SystemParamItem<Self::Param>, entity: Entity);
 }
 
 impl<Marker, F> ReactiveSystemParamFunction<Marker> for F
 where
-    F: SystemParamFunction<Marker, In = (), Out = ()>,
+    F: SystemParamFunction<Marker, In = Entity, Out = ()>,
     F::Param: ReactiveSystemParam,
 {
     type Param = F::Param;
 
-    fn run(&mut self, param: SystemParamItem<Self::Param>) {
-        SystemParamFunction::run(self, (), param)
+    fn run(&mut self, param: SystemParamItem<Self::Param>, entity: Entity) {
+        SystemParamFunction::run(self, entity, param)
     }
 }
 
@@ -158,7 +158,7 @@ pub trait ReactiveSystem: Send + Sync {
 
     fn is_changed(&mut self, world: DeferredWorld) -> bool;
 
-    fn run(&mut self, world: DeferredWorld);
+    fn run(&mut self, world: DeferredWorld, entity: Entity);
 }
 
 pub struct FunctionReactiveSystem<F, S, Marker> {
@@ -182,11 +182,11 @@ where
         F::Param::is_changed(world, self.state.as_mut().unwrap())
     }
 
-    fn run(&mut self, mut world: DeferredWorld) {
-        self.f.run(F::Param::get(
-            &mut world.reborrow(),
-            self.state.as_mut().unwrap(),
-        ));
+    fn run(&mut self, mut world: DeferredWorld, entity: Entity) {
+        self.f.run(
+            F::Param::get(&mut world.reborrow(), self.state.as_mut().unwrap()),
+            entity,
+        );
     }
 }
 
@@ -229,12 +229,12 @@ impl Reaction {
     }
 }
 
-pub fn react(mut world: DeferredWorld, reaction_query: Query<&Reaction>) {
-    for reaction in &reaction_query {
+pub fn react(mut world: DeferredWorld, reaction_query: Query<(Entity, &Reaction)>) {
+    for (entity, reaction) in &reaction_query {
         let mut system = reaction.system.lock().unwrap();
 
         if system.is_changed(world.reborrow()) {
-            system.run(world.reborrow());
+            system.run(world.reborrow(), entity);
         }
     }
 }

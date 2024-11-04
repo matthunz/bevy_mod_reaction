@@ -12,11 +12,10 @@ fn main() {
 struct X(i32);
 
 fn setup(mut commands: Commands) {
-    commands.spawn(X(0));
-
-    commands.spawn(Reaction::new(|query: Query<&X>| {
-        for x in &query {
-            dbg!(x.0);
-        }
-    }));
+    commands.spawn((
+        X(0),
+        Reaction::new(|entity: In<Entity>, query: Query<&X>| {
+            dbg!(query.get(*entity).unwrap().0);
+        }),
+    ));
 }
