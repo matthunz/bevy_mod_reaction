@@ -1,39 +1,130 @@
 use bevy::{
-    ecs::system::{SystemParam, SystemParamItem},
+    ecs::{
+        component::StorageType,
+        query::QueryData,
+        system::{SystemParam, SystemParamItem},
+        world::DeferredWorld,
+    },
     prelude::*,
 };
-use std::{marker::PhantomData, sync::Mutex};
+use std::{
+    marker::PhantomData,
+    mem,
+    sync::{Arc, Mutex},
+};
+
+pub trait ReactiveQueryData: QueryData + Sized {
+    type State: Send + Sync + 'static;
+
+    fn init(world: &mut World) -> <Self as ReactiveQueryData>::State;
+
+    fn is_changed(world: DeferredWorld, state: &mut <Self as ReactiveQueryData>::State) -> bool;
+
+    fn get<'w, 's>(
+        world: &'w mut DeferredWorld<'w>,
+        state: &'s mut <Self as ReactiveQueryData>::State,
+    ) -> Query<'w, 's, Self, ()>;
+}
+
+impl<T: Component> ReactiveQueryData for &T {
+    type State = (QueryState<(), Changed<T>>, QueryState<&'static T>);
+
+    fn init(world: &mut World) -> <Self as ReactiveQueryData>::State {
+        (QueryState::new(world), QueryState::new(world))
+    }
+
+    fn is_changed<'w>(
+        mut world: DeferredWorld,
+        state: &mut <Self as ReactiveQueryData>::State,
+    ) -> bool {
+        !world.reborrow().query(&mut state.0).is_empty()
+    }
+
+    fn get<'w, 's>(
+        world: &'w mut DeferredWorld<'w>,
+        state: &'s mut <Self as ReactiveQueryData>::State,
+    ) -> Query<'w, 's, Self, ()> {
+        // TODO verify safety
+        unsafe { mem::transmute(world.query(&mut state.1)) }
+    }
+}
 
 pub trait ReactiveSystemParam: SystemParam {
-    fn is_changed(world: &World) -> bool;
+    type State: Send + Sync + 'static;
 
-    fn get(world: &World) -> Self::Item<'_, '_>;
+    fn init(world: &mut World) -> <Self as ReactiveSystemParam>::State;
+
+    fn is_changed(world: DeferredWorld, state: &mut <Self as ReactiveSystemParam>::State) -> bool;
+
+    fn get<'w, 's>(
+        world: &'w mut DeferredWorld<'w>,
+        state: &'s mut <Self as ReactiveSystemParam>::State,
+    ) -> Self::Item<'w, 's>;
 }
 
 impl<R: Resource> ReactiveSystemParam for Res<'_, R> {
-    fn is_changed(world: &World) -> bool {
+    type State = ();
+
+    fn init(world: &mut World) -> <Self as ReactiveSystemParam>::State {}
+
+    fn is_changed(world: DeferredWorld, state: &mut <Self as ReactiveSystemParam>::State) -> bool {
         world.resource_ref::<R>().is_changed()
     }
 
-    fn get(world: &World) -> Self::Item<'_, '_> {
+    fn get<'w>(
+        world: &'w mut DeferredWorld<'w>,
+        state: &mut <Self as ReactiveSystemParam>::State,
+    ) -> Self::Item<'w, 'w> {
         world.resource_ref::<R>()
     }
 }
 
-impl<T: ReactiveSystemParam> ReactiveSystemParam for (T,) {
-    fn is_changed(world: &World) -> bool {
-        T::is_changed(world)
+impl<D: ReactiveQueryData + QueryData + 'static> ReactiveSystemParam for Query<'_, '_, D> {
+    type State = <D as ReactiveQueryData>::State;
+
+    fn init(world: &mut World) -> <Self as ReactiveSystemParam>::State {
+        <D as ReactiveQueryData>::init(world)
     }
 
-    fn get(world: &World) -> Self::Item<'_, '_> {
-        (T::get(world),)
+    fn is_changed<'a>(
+        world: DeferredWorld,
+        state: &mut <Self as ReactiveSystemParam>::State,
+    ) -> bool {
+        <D as ReactiveQueryData>::is_changed(world, state)
+    }
+
+    fn get<'w, 's>(
+        world: &'w mut DeferredWorld<'w>,
+        state: &'s mut <Self as ReactiveSystemParam>::State,
+    ) -> Self::Item<'w, 's> {
+        <D as ReactiveQueryData>::get(world, state)
+    }
+}
+
+impl<T: ReactiveSystemParam> ReactiveSystemParam for (T,) {
+    type State = <T as ReactiveSystemParam>::State;
+
+    fn init(world: &mut World) -> <Self as ReactiveSystemParam>::State {
+        T::init(world)
+    }
+
+    fn is_changed<'a>(
+        world: DeferredWorld,
+        state: &mut <Self as ReactiveSystemParam>::State,
+    ) -> bool {
+        T::is_changed(world, state)
+    }
+
+    fn get<'w, 's>(
+        world: &'w mut DeferredWorld<'w>,
+        state: &'s mut <Self as ReactiveSystemParam>::State,
+    ) -> Self::Item<'w, 's> {
+        (T::get(world, state),)
     }
 }
 
 pub trait ReactiveSystemParamFunction<Marker> {
     type Param: ReactiveSystemParam;
-
-    fn is_changed(&self, world: &World) -> bool;
 
     fn run(&mut self, param: SystemParamItem<Self::Param>);
 }
@@ -45,43 +136,68 @@ where
 {
     type Param = F::Param;
 
-    fn is_changed(&self, world: &World) -> bool {
-        <F::Param as ReactiveSystemParam>::is_changed(world)
-    }
-
     fn run(&mut self, param: SystemParamItem<Self::Param>) {
         SystemParamFunction::run(self, (), param)
     }
 }
 
 pub trait ReactiveSystem: Send + Sync {
-    fn is_changed(&self, world: &World) -> bool;
+    fn init(&mut self, world: &mut World);
 
-    fn run(&mut self, world: &World);
+    fn is_changed(&mut self, world: DeferredWorld) -> bool;
+
+    fn run(&mut self, world: DeferredWorld);
 }
 
-pub struct FunctionReactiveSystem<F, Marker> {
+pub struct FunctionReactiveSystem<F, S, Marker> {
     f: F,
+    state: Option<S>,
     _marker: PhantomData<Marker>,
 }
 
-impl<F, Marker> ReactiveSystem for FunctionReactiveSystem<F, Marker>
+impl<F, S, Marker> ReactiveSystem for FunctionReactiveSystem<F, S, Marker>
 where
     F: ReactiveSystemParamFunction<Marker> + Send + Sync,
+    F::Param: ReactiveSystemParam<State = S>,
+    S: Send + Sync,
     Marker: Send + Sync,
 {
-    fn is_changed(&self, world: &World) -> bool {
-        self.f.is_changed(world)
+    fn init(&mut self, world: &mut World) {
+        self.state = Some(F::Param::init(world));
     }
 
-    fn run(&mut self, world: &World) {
-        self.f.run(F::Param::get(world));
+    fn is_changed(&mut self, world: DeferredWorld) -> bool {
+        F::Param::is_changed(world, self.state.as_mut().unwrap())
+    }
+
+    fn run(&mut self, mut world: DeferredWorld) {
+        self.f.run(F::Param::get(
+            &mut world.reborrow(),
+            self.state.as_mut().unwrap(),
+        ));
     }
 }
 
-#[derive(Component)]
+#[derive(Clone)]
 pub struct Reaction {
-    system: Mutex<Box<dyn ReactiveSystem>>,
+    system: Arc<Mutex<Box<dyn ReactiveSystem>>>,
+}
+
+impl Component for Reaction {
+    const STORAGE_TYPE: StorageType = StorageType::Table;
+
+    fn register_component_hooks(hooks: &mut bevy::ecs::component::ComponentHooks) {
+        hooks.on_insert(|mut world, entity, _| {
+            world.commands().add(move |world: &mut World| {
+                let me = world
+                    .query::<&Reaction>()
+                    .get(world, entity)
+                    .unwrap()
+                    .clone();
+                me.system.lock().unwrap().init(world);
+            });
+        });
+    }
 }
 
 impl Reaction {
@@ -92,19 +208,21 @@ impl Reaction {
         Marker: Send + Sync + 'static,
     {
         Self {
-            system: Mutex::new(Box::new(FunctionReactiveSystem {
+            system: Arc::new(Mutex::new(Box::new(FunctionReactiveSystem {
                 f: system,
+                state: None,
                 _marker: PhantomData,
-            })),
+            }))),
         }
     }
 }
 
-pub fn react(world: &World, reaction_query: Query<&Reaction>) {
+pub fn react(mut world: DeferredWorld, reaction_query: Query<&Reaction>) {
     for reaction in &reaction_query {
         let mut system = reaction.system.lock().unwrap();
-        if system.is_changed(world) {
-            system.run(world);
+
+        if system.is_changed(world.reborrow()) {
+            system.run(world.reborrow());
         }
     }
 }
