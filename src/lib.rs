@@ -102,6 +102,9 @@ impl<T: FromWorld + Send> ReactiveSystemParam for Local<'_, T> {
     }
 
     fn is_changed(world: DeferredWorld, state: &mut <Self as ReactiveSystemParam>::State) -> bool {
+        let _ = world;
+        let _ = state;
+
         false
     }
 
@@ -446,8 +449,8 @@ impl Reaction {
                             *local = true;
                         }
                     } else if *local {
-                        commands.entity(scope.entity).remove::<B>();
-                        commands.entity(scope.entity).insert(f());
+                        commands.entity(scope.entity).remove::<A>();
+                        commands.entity(scope.entity).insert(g());
                         *local = false;
                     }
                 },
