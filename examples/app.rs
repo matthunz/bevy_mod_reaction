@@ -21,6 +21,7 @@ struct Armor(i32);
 
 fn setup(mut commands: Commands) {
     // Coarse-grained reactivity:
+    // This reaction will only run when a `Damage` component changes.
     commands.spawn(Reaction::new(|_: In<Scope>, query: Query<&Damage>| {
         for dmg in &query {
             dbg!(dmg.0);
