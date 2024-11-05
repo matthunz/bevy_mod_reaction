@@ -1,4 +1,4 @@
-use crate::{IntoReactiveSystem, ReactiveSystem, ReactiveSystemParamFunction, Scope};
+use crate::{IntoReactiveSystem, ReactiveSystem, Scope};
 use bevy_app::PostUpdate;
 use bevy_ecs::{
     component::{ComponentHooks, StorageType},
@@ -92,25 +92,30 @@ impl Reaction {
         Self::from_label(PostUpdate, system)
     }
 
-    pub fn derive<Marker, B>(
-        system: impl ReactiveSystemParamFunction<Marker, In = (), Out = B> + Send + Sync + 'static,
-    ) -> Self
+    /// Create a new [`Reaction`] that derives a [`Bundle`] from a [`ReactiveSystem`].
+    pub fn derive<Marker, S, B>(system: impl IntoReactiveSystem<Marker, System = S>) -> Self
     where
         Marker: Send + Sync + 'static,
         B: Bundle,
+        S: ReactiveSystem<In = (), Out = B> + 'static,
     {
         Self::new(system.map(|scope: In<Scope<B>>, mut commands: Commands| {
             commands.entity(scope.entity).insert(scope.0.input);
         }))
     }
 
-    pub fn switch<Marker, A, B>(
-        system: impl ReactiveSystemParamFunction<Marker, In = (), Out = bool> + Send + Sync + 'static,
-        mut f: impl FnMut() -> A + Send + Sync + 'static,
-        mut g: impl FnMut() -> B + Send + Sync + 'static,
+    /// Create a new [`Reaction`] that switches between two [`Bundle`]s.
+    ///
+    /// When `system` returns `true`, the `make_if` closure is called to create a new [`Bundle`] and replace the current [`Bundle`].
+    /// Otherwise, the `make_else` closure is called to replace the original [`Bundle`].
+    pub fn switch<Marker, S, A, B>(
+        system: impl IntoReactiveSystem<Marker, System = S>,
+        mut make_if: impl FnMut() -> A + Send + Sync + 'static,
+        mut make_else: impl FnMut() -> B + Send + Sync + 'static,
     ) -> Self
     where
         Marker: Send + Sync + 'static,
+        S: ReactiveSystem<In = (), Out = bool> + 'static,
         A: Bundle,
         B: Bundle,
     {
@@ -119,13 +124,36 @@ impl Reaction {
                 if scope.input {
                     if !*local {
                         commands.entity(scope.entity).remove::<B>();
-                        commands.entity(scope.entity).insert(f());
+                        commands.entity(scope.entity).insert(make_if());
                         *local = true;
                     }
                 } else if *local {
                     commands.entity(scope.entity).remove::<A>();
-                    commands.entity(scope.entity).insert(g());
+                    commands.entity(scope.entity).insert(make_else());
                     *local = false;
+                }
+            },
+        ))
+    }
+
+    /// Create a new [`Reaction`] that spawns [`Bundle`]s from an iterator.
+    pub fn from_iter<Marker, S, I>(system: impl IntoReactiveSystem<Marker, System = S>) -> Self
+    where
+        Marker: Send + Sync + 'static,
+        S: ReactiveSystem<In = (), Out = I> + 'static,
+        I: IntoIterator + 'static,
+        I::Item: Bundle,
+    {
+        Self::new(system.map(
+            move |scope: In<Scope<I>>, mut commands: Commands, mut local: Local<Vec<Entity>>| {
+                for entity in &local {
+                    commands.entity(*entity).despawn();
+                }
+                local.clear();
+
+                for item in scope.0.input {
+                    let entity = commands.spawn(item).id();
+                    local.push(entity);
                 }
             },
         ))

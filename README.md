@@ -36,6 +36,13 @@ commands.spawn((
         || Damage(100),
     ),
 ));
+
+// Reactions can also be created from iterators.
+commands.spawn(Reaction::from_iter(
+    |_: In<Scope>, query: Query<&Health>| {
+        query.iter().map(|health| *health).collect::<Vec<_>>()
+    },
+));
 ```
 
 Bundles of components can also be derived:

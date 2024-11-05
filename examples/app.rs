@@ -8,7 +8,7 @@ fn main() {
         .run();
 }
 
-#[derive(Component)]
+#[derive(Clone, Copy, Component)]
 struct Health(i32);
 
 #[derive(Component)]
@@ -52,4 +52,11 @@ fn setup(mut commands: Commands) {
     reaction.add_target(a);
     reaction.add_target(b);
     commands.spawn(reaction);
+
+    // Reactions can also be created from iterators.
+    commands.spawn(Reaction::from_iter(
+        |_: In<Scope>, query: Query<&Health>| {
+            query.iter().map(|health| *health).collect::<Vec<_>>()
+        },
+    ));
 }
