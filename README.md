@@ -51,8 +51,8 @@ fn setup(mut commands: Commands) {
         Health(0),
         Reaction::switch(
             |scope: In<Scope>, query: Query<&Health>| {
-                let dmg = query.get(scope.entity).unwrap();
-                dmg.0 == 0
+                let health = query.get(scope.entity).unwrap();
+                health.0 == 0
             },
             || Armor(50),
             || Damage(100),
