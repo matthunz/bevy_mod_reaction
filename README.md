@@ -9,7 +9,11 @@
 
 Reactive components for Bevy.
 
-A `Reaction` is a component around a `ReactiveSystem`, which runs every time its parameters have changed. Bevy's built-in change detection mechanisms are used to efficiently react to changes in state.
+A `Reaction` is a component around a `ReactiveSystem`, which runs every time its parameters have changed. `Reaction`s are run in parallel and can be separated by `ScheduleLabel`s. Bevy's built-in change detection mechanisms are used to efficiently react to changes in state.
+
+
+
+
 ```rs
 // Coarse-grained reactivity:
 // This reaction will only run when a`Damage` component changes.
@@ -38,9 +42,9 @@ commands.spawn((
 ));
 
 // Reactions can also be created from iterators.
-commands.spawn(Reaction::from_iter(
+commands.spawn(Reaction::children(
     |_: In<Scope>, query: Query<&Health>| {
-        query.iter().map(|health| *health).collect::<Vec<_>>()
+        query.iter().map(|health| Damage(health.0)).collect::<Vec<_>>()
     },
 ));
 ```

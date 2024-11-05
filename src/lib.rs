@@ -85,10 +85,14 @@ impl Plugin for ReactionPlugin {
 }
 
 pub fn react<L: ScheduleLabel>(
-    mut world: DeferredWorld,
+    world: DeferredWorld,
     reaction_query: Query<(Entity, &Reaction<L>)>,
 ) {
-    for (entity, reaction) in &reaction_query {
-        reaction.run(world.reborrow(), entity);
-    }
+    let world_cell = world.as_unsafe_world_cell_readonly();
+    reaction_query
+        .par_iter()
+        .for_each(move |(entity, reaction)| {
+            let mut world = unsafe { world_cell.into_deferred() };
+            reaction.run(world.reborrow(), entity);
+        });
 }
