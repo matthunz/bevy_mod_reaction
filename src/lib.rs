@@ -262,6 +262,8 @@ unsafe impl<D: ReadOnlyQueryData + 'static, F: QueryFilter + 'static> SystemPara
         world: &mut World,
         system_meta: &mut bevy::ecs::system::SystemMeta,
     ) -> Self::State {
+        let _ = world;
+        let _ = system_meta;
         todo!()
     }
 
@@ -271,6 +273,10 @@ unsafe impl<D: ReadOnlyQueryData + 'static, F: QueryFilter + 'static> SystemPara
         world: bevy::ecs::world::unsafe_world_cell::UnsafeWorldCell<'world>,
         change_tick: bevy::ecs::component::Tick,
     ) -> Self::Item<'world, 'state> {
+        let _ = state;
+        let _ = system_meta;
+        let _ = world;
+        let _ = change_tick;
         todo!()
     }
 }
