@@ -69,7 +69,7 @@ where
         state: &'s mut <Self as ReactiveQueryData<F>>::State,
     ) -> Query<'w, 's, Self, F> {
         // TODO verify safety
-        unsafe { mem::transmute(state.get(&world).1) }
+        unsafe { mem::transmute(state.get(world).1) }
     }
 }
 
@@ -80,6 +80,10 @@ pub trait ReactiveSystemParam: SystemParam {
 
     fn is_changed(world: DeferredWorld, state: &mut <Self as ReactiveSystemParam>::State) -> bool;
 
+    /// Get the system parameter.
+    /// 
+    /// # Safety
+    /// `world` must not be mutated during this function call.
     unsafe fn get<'w: 's, 's>(
         world: &'w mut DeferredWorld<'w>,
         state: &'s mut <Self as ReactiveSystemParam>::State,
