@@ -11,7 +11,8 @@ Reactive components for Bevy.
 
 A `Reaction` is a component around a `ReactiveSystem`, which runs every time its parameters have changed. Bevy's built-in change detection mechanisms are used to efficiently react to changes in state.
 ```rs
-/// This reaction will only run if a `Damage` component is changed.
+// Coarse-grained reactivity:
+// This reaction will only run if a `Damage` component is changed.
 commands.spawn(Reaction::new(|_: In<Scope>, query: Query<&Damage>| {
     for dmg in &query {
         dbg!(dmg.0);
@@ -21,15 +22,19 @@ commands.spawn(Reaction::new(|_: In<Scope>, query: Query<&Damage>| {
 
 For coarse-grained reactivity `ReactiveQuery` tracks the entities read and only re-runs the current system if those values have changed. Bundles of components can also be derived:
 ```rs
-// Coarse-grained reactivity:
-// This reaction will only run when the `Health` component belonging to `scope.entity` changes.
-commands.spawn((
-    Health(100),
-    Reaction::derive(|scope: In<Scope>, mut query: ReactiveQuery<&Health>| {
+// Fine-grained reactivity:
+// This reaction will only run when a tracked `Health` component changes.
+// Reactions can also subscribe to multiple targets.
+    let a = commands.spawn(Health(100)).id();
+    let b = commands.spawn(Health(100)).id();
+
+    let mut reaction = Reaction::derive(|scope: In<Scope>, query: Query<&Health>| {
         let health = query.get(scope.entity).unwrap();
         Damage(health.0 * 2)
-    }),
-));
+    });
+    reaction.add_target(a);
+    reaction.add_target(b);
+    commands.spawn(reaction);
 ```
 
 Switch statements are also supported, with more primitives coming soon

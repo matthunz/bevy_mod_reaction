@@ -20,22 +20,15 @@ struct Damage(i32);
 struct Armor(i32);
 
 fn setup(mut commands: Commands) {
-    commands.spawn((
-        Health(100),
-        Reaction::derive(|scope: In<Scope>, query: Query<&Health>| {
-            let health = query.get(scope.entity).unwrap();
-            Damage(health.0 * 2)
-        }),
-    ));
-
+    // Coarse-grained reactivity:
     commands.spawn(Reaction::new(|_: In<Scope>, query: Query<&Damage>| {
         for dmg in &query {
             dbg!(dmg.0);
         }
     }));
 
-    // Coarse-grained reactivity:
-    // This reaction will only run when the `Health` component belonging to `scope.entity` changes.
+    // Fine-grained reactivity:
+    // This reaction will only run when a tracked `Health` component changes.
     commands.spawn((
         Health(0),
         Reaction::switch(
@@ -47,4 +40,16 @@ fn setup(mut commands: Commands) {
             || Damage(100),
         ),
     ));
+
+    // Reactions can also subscribe to multiple targets.
+    let a = commands.spawn(Health(100)).id();
+    let b = commands.spawn(Health(100)).id();
+
+    let mut reaction = Reaction::derive(|scope: In<Scope>, query: Query<&Health>| {
+        let health = query.get(scope.entity).unwrap();
+        Damage(health.0 * 2)
+    });
+    reaction.add_target(a);
+    reaction.add_target(b);
+    commands.spawn(reaction);
 }
