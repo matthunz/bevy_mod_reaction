@@ -136,8 +136,8 @@ impl Reaction {
         ))
     }
 
-    /// Create a new [`Reaction`] that spawns [`Bundle`]s from an iterator.
-    pub fn from_iter<Marker, S, I>(system: impl IntoReactiveSystem<Marker, System = S>) -> Self
+    /// Create a new [`Reaction`] that spawns [`Bundle`]s from an iterator as children.
+    pub fn children<Marker, S, I>(system: impl IntoReactiveSystem<Marker, System = S>) -> Self
     where
         Marker: Send + Sync + 'static,
         S: ReactiveSystem<In = (), Out = I> + 'static,

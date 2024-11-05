@@ -54,9 +54,7 @@ fn setup(mut commands: Commands) {
     commands.spawn(reaction);
 
     // Reactions can also be created from iterators.
-    commands.spawn(Reaction::from_iter(
-        |_: In<Scope>, query: Query<&Health>| {
-            query.iter().map(|health| *health).collect::<Vec<_>>()
-        },
-    ));
+    commands.spawn(Reaction::children(|_: In<Scope>, query: Query<&Health>| {
+        query.iter().map(|health| *health).collect::<Vec<_>>()
+    }));
 }
