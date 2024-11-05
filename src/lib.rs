@@ -41,8 +41,10 @@ impl<T> DerefMut for Scope<T> {
     }
 }
 
+type PluginFn = Arc<dyn Fn(&mut App) + Send + Sync>;
+
 pub struct ReactionPlugin {
-    fns: Vec<Arc<dyn Fn(&mut App) + Send + Sync>>,
+    fns: Vec<PluginFn>,
 }
 
 impl ReactionPlugin {
