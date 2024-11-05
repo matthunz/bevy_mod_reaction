@@ -24,25 +24,10 @@ For coarse-grained reactivity `ReactiveQuery` tracks the entities read and only 
 ```rs
 // Fine-grained reactivity:
 // This reaction will only run when a tracked `Health` component changes.
-// Reactions can also subscribe to multiple targets.
-    let a = commands.spawn(Health(100)).id();
-    let b = commands.spawn(Health(100)).id();
-
-    let mut reaction = Reaction::derive(|scope: In<Scope>, query: Query<&Health>| {
-        let health = query.get(scope.entity).unwrap();
-        Damage(health.0 * 2)
-    });
-    reaction.add_target(a);
-    reaction.add_target(b);
-    commands.spawn(reaction);
-```
-
-Switch statements are also supported, with more primitives coming soon
-```rs
 commands.spawn((
     Health(0),
     Reaction::switch(
-        |scope: In<Scope>, query: ReactiveQuery<&Health>| {
+        |scope: In<Scope>, mut query: ReactiveQuery<&Health>| {
             let health = query.get(scope.entity).unwrap();
             health.0 == 0
         },
@@ -50,4 +35,21 @@ commands.spawn((
         || Damage(100),
     ),
 ));
+```
+
+Switch statements are also supported, with more primitives coming soon
+```rs
+// Reactions can also subscribe to multiple targets.
+let a = commands.spawn(Health(100)).id();
+let b = commands.spawn(Health(100)).id();
+
+let mut reaction = Reaction::derive(|scope: In<Scope>, query: Query<&Health>| {
+    let health = query.get(scope.entity).unwrap();
+    Damage(health.0 * 2)
+});
+
+reaction.add_target(a);
+reaction.add_target(b);
+
+commands.spawn(reaction);
 ```
