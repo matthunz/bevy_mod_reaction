@@ -20,7 +20,8 @@ commands.spawn(Reaction::new(|_: In<Scope>, query: Query<&Damage>| {
 }));
 ```
 
-For coarse-grained reactivity `ReactiveQuery` tracks the entities read and only re-runs the current system if those values have changed. Bundles of components can also be derived:
+For coarse-grained reactivity `ReactiveQuery` tracks the entities read and only re-runs the current system if those values have changed.
+Switch statements are also supported, with more primitives coming soon:
 ```rs
 // Fine-grained reactivity:
 // This reaction will only run when a tracked `Health` component changes.
@@ -37,7 +38,7 @@ commands.spawn((
 ));
 ```
 
-Switch statements are also supported, with more primitives coming soon
+Bundles of components can also be derived:
 ```rs
 // Reactions can also subscribe to multiple targets.
 let a = commands.spawn(Health(100)).id();
