@@ -6,4 +6,8 @@ edition = "2021"
 license = "MIT OR Apache-2.0"
 
 [dependencies]
+bevy_ecs = "0.14.2"
+bevy_utils = "0.14.2"
+
+[dev-dependencies]
 bevy = "0.14.2"
