@@ -757,6 +757,7 @@ name = "bevy_mod_reaction"
 version = "0.2.0-alpha.1"
 dependencies = [
  "bevy",
+ "bevy_app",
  "bevy_ecs",
  "bevy_utils",
 ]

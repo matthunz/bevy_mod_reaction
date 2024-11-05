@@ -1,11 +1,10 @@
 use bevy::prelude::*;
-use bevy_mod_reaction::{react, Reaction, ReactiveQuery, Scope};
+use bevy_mod_reaction::{Reaction, ReactionPlugin, ReactiveQuery, Scope};
 
 fn main() {
     App::new()
-        .add_plugins(DefaultPlugins)
+        .add_plugins((DefaultPlugins, ReactionPlugin::new()))
         .add_systems(Startup, setup)
-        .add_systems(Update, react)
         .run();
 }
 
