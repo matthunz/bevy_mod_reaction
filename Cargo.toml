@@ -1,7 +1,9 @@
 [package]
 name = "bevy_mod_reaction"
+description = "Reactive components for Bevy"
 version = "0.1.0"
 edition = "2021"
+license = "MIT OR Apache-2.0"
 
 [dependencies]
 bevy = "0.14.2"

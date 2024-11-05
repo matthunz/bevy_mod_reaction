@@ -1,5 +1,12 @@
 # bevy_mod_reaction
 
+[![License](https://img.shields.io/badge/license-MIT%2FApache-blue.svg)](https://github.com/matthunz/bevy_mod_reaction)
+[![Crates.io](https://img.shields.io/crates/v/bevy_mod_reaction.svg)](https://crates.io/crates/bevy_mod_reaction)
+[![Downloads](https://img.shields.io/crates/d/bevy_mod_reaction.svg)](https://crates.io/crates/bevy_mod_reaction)
+[![Docs](https://docs.rs/bevy_mod_reaction/badge.svg)](https://docs.rs/bevy_mod_reaction/latest/bevy_mod_reaction/)
+[![CI](https://github.com/matthunz/bevy_mod_reaction/workflows/CI/badge.svg)](https://github.com/matthunz/bevy_mod_reaction/actions)
+
+
 Reactive components for Bevy.
 
 ```rs
