@@ -81,7 +81,7 @@ pub trait ReactiveSystemParam: SystemParam {
     fn is_changed(world: DeferredWorld, state: &mut <Self as ReactiveSystemParam>::State) -> bool;
 
     /// Get the system parameter.
-    /// 
+    ///
     /// # Safety
     /// `world` must not be mutated during this function call.
     unsafe fn get<'w: 's, 's>(
@@ -489,9 +489,14 @@ where
     }
 }
 
+struct Inner {
+    system: Box<dyn ReactiveSystem<In = (), Out = ()>>,
+    entities: Vec<Entity>,
+}
+
 #[derive(Clone)]
 pub struct Reaction {
-    system: Arc<Mutex<Box<dyn ReactiveSystem<In = (), Out = ()>>>>,
+    inner: Arc<Mutex<Inner>>,
 }
 
 impl Component for Reaction {
@@ -505,7 +510,7 @@ impl Component for Reaction {
                     .get(world, entity)
                     .unwrap()
                     .clone();
-                me.system.lock().unwrap().init(world);
+                me.inner.lock().unwrap().system.init(world);
             });
         });
     }
@@ -518,7 +523,10 @@ impl Reaction {
         S: ReactiveSystem<In = (), Out = ()> + 'static,
     {
         Self {
-            system: Arc::new(Mutex::new(Box::new(system.into_reactive_system()))),
+            inner: Arc::new(Mutex::new(Inner {
+                system: Box::new(system.into_reactive_system()),
+                entities: Vec::new(),
+            })),
         }
     }
 
@@ -529,13 +537,9 @@ impl Reaction {
         Marker: Send + Sync + 'static,
         B: Bundle,
     {
-        Self {
-            system: Arc::new(Mutex::new(Box::new(system.map(
-                |scope: In<Scope<B>>, mut commands: Commands| {
-                    commands.entity(scope.entity).insert(scope.0.input);
-                },
-            )))),
-        }
+        Self::new(system.map(|scope: In<Scope<B>>, mut commands: Commands| {
+            commands.entity(scope.entity).insert(scope.0.input);
+        }))
     }
 
     pub fn switch<Marker, A, B>(
@@ -548,32 +552,42 @@ impl Reaction {
         A: Bundle,
         B: Bundle,
     {
-        Self {
-            system: Arc::new(Mutex::new(Box::new(system.map(
-                move |scope: In<Scope<bool>>, mut commands: Commands, mut local: Local<bool>| {
-                    if scope.input {
-                        if !*local {
-                            commands.entity(scope.entity).remove::<B>();
-                            commands.entity(scope.entity).insert(f());
-                            *local = true;
-                        }
-                    } else if *local {
-                        commands.entity(scope.entity).remove::<A>();
-                        commands.entity(scope.entity).insert(g());
-                        *local = false;
+        Self::new(system.map(
+            move |scope: In<Scope<bool>>, mut commands: Commands, mut local: Local<bool>| {
+                if scope.input {
+                    if !*local {
+                        commands.entity(scope.entity).remove::<B>();
+                        commands.entity(scope.entity).insert(f());
+                        *local = true;
                     }
-                },
-            )))),
-        }
+                } else if *local {
+                    commands.entity(scope.entity).remove::<A>();
+                    commands.entity(scope.entity).insert(g());
+                    *local = false;
+                }
+            },
+        ))
+    }
+
+    pub fn add_target(&mut self, entity: Entity) -> &mut Self {
+        self.inner.lock().unwrap().entities.push(entity);
+        self
     }
 }
 
 pub fn react(mut world: DeferredWorld, reaction_query: Query<(Entity, &Reaction)>) {
     for (entity, reaction) in &reaction_query {
-        let mut system = reaction.system.lock().unwrap();
+        let inner = &mut *reaction.inner.lock().unwrap();
 
-        if system.is_changed(world.reborrow()) {
-            system.run((), world.reborrow(), entity);
+        if inner.system.is_changed(world.reborrow()) {
+            if inner.entities.is_empty() {
+                inner.system.run((), world.reborrow(), entity);
+            } else {
+                for entity in &inner.entities {
+                    inner.system.run((), world.reborrow(), *entity);
+                }
+            }
+            inner.system.run((), world.reborrow(), entity);
         }
     }
 }
