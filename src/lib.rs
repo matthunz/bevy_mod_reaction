@@ -304,11 +304,16 @@ where
         mut world: DeferredWorld,
         state: &mut <Self as ReactiveSystemParam>::State,
     ) -> bool {
+        if state.entities.is_empty() {
+            return true;
+        }
+
         for entity in state.entities.iter() {
             if D::is_changed_with_entity(world.reborrow(), &mut state.query_state, *entity) {
                 return true;
             }
         }
+
         false
     }
 
@@ -587,7 +592,6 @@ pub fn react(mut world: DeferredWorld, reaction_query: Query<(Entity, &Reaction)
                     inner.system.run((), world.reborrow(), *entity);
                 }
             }
-            inner.system.run((), world.reborrow(), entity);
         }
     }
 }
