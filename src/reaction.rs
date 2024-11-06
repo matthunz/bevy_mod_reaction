@@ -6,6 +6,7 @@ use bevy_ecs::{
     schedule::ScheduleLabel,
     world::DeferredWorld,
 };
+use bevy_hierarchy::BuildChildren;
 use std::sync::{Arc, Mutex};
 
 pub(crate) struct Inner {
@@ -102,6 +103,21 @@ impl Reaction {
     {
         Self::new(system.map(|scope: In<Scope<B>>, mut commands: Commands| {
             commands.entity(scope.entity).insert(scope.0.input);
+        }))
+    }
+
+    /// Create a new [`Reaction`] that derives a [`Bundle`] from .
+    pub fn child<Marker, B>(
+        system: impl ReactiveSystemParamFunction<Marker, In = (), Out = B> + Send + Sync + 'static,
+    ) -> Self
+    where
+        Marker: Send + Sync + 'static,
+        B: Bundle,
+    {
+        Self::new(system.map(|scope: In<Scope<B>>, mut commands: Commands| {
+            let entity = scope.entity;
+            let child = commands.spawn(scope.0.input).id();
+            commands.entity(entity).add_child(child);
         }))
     }
 
